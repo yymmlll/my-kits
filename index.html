@@ -265,7 +265,7 @@
   // ==========================================
   const SUPABASE_URL = "https://izqdfsxdvdkoikvzgzcz.supabase.co";
   const SUPABASE_ANON_KEY = "sb_publishable_1B4wSnpourcYGP16olCjaQ_3hKKGofw";
-  const ADMIN_PASSWORD = "0624"; // 사용하실 수정/추가용 비밀번호
+  const ADMIN_PASSWORD = "1234";
 
   const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
@@ -332,7 +332,6 @@
   let currentDetailId = null;
   let cachedKits = [];
 
-  // 누구나 페이지에 접속하면 데이터 자동 로드
   window.addEventListener('DOMContentLoaded', () => {
     loadKitsFromSupabase();
   });
