@@ -4,11 +4,23 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>유니폼 모읍니다.</title>
+<!-- Supabase JS SDK -->
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <style>
   @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=Noto+Sans+KR:wght@400;500;700;900&display=swap');
   * { box-sizing: border-box; }
   body { margin: 0; background: #f7f6f2; color: #111; font-family: Inter, 'Noto Sans KR', sans-serif; }
-  
+
+  /* 관리자 비밀번호 모달 스타일 */
+  #adminAuthOverlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.6); z-index: 9999; display: none; align-items: center; justify-content: center; }
+  .lock-box { background: #fff; border: 1px solid #ddd9d0; padding: 30px; border-radius: 8px; text-align: center; width: 320px; box-shadow: 0 4px 12px rgba(0,0,0,0.15); }
+  .lock-box h2 { font-size: 18px; font-weight: 900; margin: 0 0 10px; }
+  .lock-box p { font-size: 12px; color: #666; margin-bottom: 20px; }
+  .lock-box input { width: 100%; padding: 10px; border: 1px solid #d3d0c8; border-radius: 4px; font-size: 14px; text-align: center; margin-bottom: 12px; }
+  .lock-box-btns { display: flex; gap: 8px; }
+  .lock-box button { flex: 1; background: #111; color: #fff; border: 0; padding: 10px; border-radius: 4px; font-weight: 700; font-size: 13px; cursor: pointer; }
+  .lock-box button.btn-cancel { background: #eee; color: #333; }
+
   /* Topbar */
   .topbar { height: 60px; border-bottom: 1px solid #ddd9d0; display: flex; align-items: center; justify-content: space-between; padding: 0 4vw; background: #f7f6f2; position: sticky; top: 0; z-index: 10; }
   .brand { color: #111; text-decoration: none; font-size: 18px; font-weight: 900; letter-spacing: -0.5px; }
@@ -23,9 +35,6 @@
   .toolbar { display: flex; gap: 8px; flex: 1; flex-wrap: wrap; }
   .toolbar input, .toolbar select { border: 1px solid #d3d0c8; background: #fff; padding: 10px 12px; border-radius: 4px; font: inherit; font-size: 12px; }
   .toolbar input[type="search"] { flex: 1; min-width: 180px; }
-  
-  .btn-backup { background: #fff; border: 1px solid #ccc; color: #444; padding: 9px 12px; border-radius: 4px; font-size: 12px; font-weight: 600; cursor: pointer; }
-  .btn-backup:hover { background: #eee; }
 
   /* 통계 바 */
   .stats-bar { display: flex; gap: 15px; background: #efece4; padding: 10px 16px; border-radius: 4px; font-size: 11px; color: #666; margin-bottom: 20px; flex-wrap: wrap; }
@@ -80,7 +89,6 @@
   .form-group textarea { resize: none; }
   .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 
-  /* 라디오 버튼 수평 정렬 */
   .radio-group { display: flex; gap: 16px; align-items: center; height: 38px; }
   .radio-group label { font-size: 12px; font-weight: 600; color: #333; display: flex; align-items: center; gap: 6px; cursor: pointer; margin-bottom: 0; white-space: nowrap; }
   .radio-group input[type="radio"] { margin: 0; cursor: pointer; }
@@ -107,9 +115,22 @@
 </head>
 <body>
 
+<!-- 관리자 인증 팝업 -->
+<div id="adminAuthOverlay">
+  <div class="lock-box">
+    <h2>🔑 관리자 인증</h2>
+    <p>유니폼 추가, 수정, 삭제는 암호가 필요합니다.</p>
+    <input type="password" id="adminPassInput" placeholder="비밀번호 입력" onkeydown="if(event.key==='Enter') submitAdminAuth()">
+    <div class="lock-box-btns">
+      <button type="button" class="btn-cancel" onclick="closeAdminAuth()">취소</button>
+      <button type="button" onclick="submitAdminAuth()">확인</button>
+    </div>
+  </div>
+</div>
+
 <header class="topbar">
   <a class="brand" href="#">유니폼 모읍니다.</a>
-  <button class="btn-add" onclick="openAddModal()">＋ 유니폼 추가</button>
+  <button class="btn-add" onclick="handleProtectedAction('add')">＋ 유니폼 추가</button>
 </header>
 
 <main>
@@ -125,10 +146,6 @@
         <option value="club">이름순</option>
         <option value="season">시즌순</option>
       </select>
-
-      <button class="btn-backup" onclick="exportData()" title="컬렉션 데이터 파일 백업">📥 백업</button>
-      <button class="btn-backup" onclick="document.getElementById('importFile').click()" title="백업 파일 복원">📤 복구</button>
-      <input type="file" id="importFile" accept=".json" hidden onchange="importData(event)">
     </div>
   </div>
 
@@ -144,12 +161,10 @@
   <section id="grid" class="grid"></section>
 </main>
 
-<!-- 이미지 확대 라이트박스 모달 -->
 <div id="lightboxOverlay" class="lightbox-overlay" onclick="closeLightbox()">
   <img id="lightboxImg" src="" alt="확대 이미지">
 </div>
 
-<!-- 유니폼 상세 모달 -->
 <div id="detailModalOverlay" class="modal-overlay">
   <div class="modal">
     <div class="modal-head">
@@ -159,12 +174,11 @@
     <div id="detailContent"></div>
     <div class="modal-actions">
       <button type="button" class="btn-sec" onclick="closeDetailModal()">닫기</button>
-      <button type="button" class="btn-add" onclick="switchEditMode()">수정하기</button>
+      <button type="button" class="btn-add" onclick="handleProtectedAction('edit')">수정하기</button>
     </div>
   </div>
 </div>
 
-<!-- 유니폼 추가/수정 모달 -->
 <div id="modalOverlay" class="modal-overlay">
   <div class="modal">
     <div class="modal-head">
@@ -190,13 +204,13 @@
         </div>
         <div class="form-group">
           <label>구단 / 국가대표 명 *</label>
-          <input id="club" list="dl-clubs" required placeholder="예: FC Barcelona 또는 스페인" onfocus="populateDataLists()">
+          <input id="club" list="dl-clubs" required placeholder="예: FC Barcelona 또는 스페인">
         </div>
       </div>
       <div class="form-row">
         <div class="form-group">
           <label>시즌 *</label>
-          <input id="season" list="dl-seasons" required placeholder="예: 14/15" onfocus="populateDataLists()">
+          <input id="season" list="dl-seasons" required placeholder="예: 14/15">
         </div>
         <div class="form-group">
           <label>종류</label>
@@ -210,7 +224,7 @@
         </div>
         <div class="form-group">
           <label>제조사</label>
-          <input id="maker" list="dl-makers" placeholder="예: Nike" onfocus="populateDataLists()">
+          <input id="maker" list="dl-makers" placeholder="예: Nike">
         </div>
       </div>
       <div class="form-row">
@@ -220,12 +234,12 @@
         </div>
         <div class="form-group">
           <label>사이즈</label>
-          <input id="size" list="dl-sizes" placeholder="예: 해외 L" onfocus="populateDataLists()">
+          <input id="size" list="dl-sizes" placeholder="예: 해외 L">
         </div>
       </div>
       <div class="form-group">
         <label>구매처</label>
-        <input id="shop" list="dl-shops" placeholder="선택 사항" onfocus="populateDataLists()">
+        <input id="shop" list="dl-shops" placeholder="선택 사항">
       </div>
       <div class="form-group">
         <label>메모 / 한마디</label>
@@ -233,11 +247,11 @@
       </div>
 
       <div class="section-title">상세 사진 등록</div>
-      <div class="photo-guide-note">밝은 곳에서 정면을 평평하게 놓고 촬영하시면 가이드 포맷에 맞게 등록됩니다. (이미지를 해당 칸으로 끌어다놓을 수 있습니다)</div>
+      <div class="photo-guide-note">밝은 곳에서 촬영된 이미지를 올려주세요. (Supabase Storage 연동)</div>
       <div id="photoGrid" class="photo-grid"></div>
 
       <div class="modal-actions">
-        <button type="button" id="btnDelete" class="btn-danger" style="display:none; margin-right:auto;" onclick="deleteKit()">삭제</button>
+        <button type="button" id="btnDelete" class="btn-danger" style="display:none; margin-right:auto;" onclick="handleProtectedAction('delete')">삭제</button>
         <button type="button" class="btn-sec" onclick="closeModal()">취소</button>
         <button type="submit" class="btn-add">저장</button>
       </div>
@@ -246,6 +260,58 @@
 </div>
 
 <script>
+  // ==========================================
+  // [Supabase 프로젝트 설정 연동 정보]
+  // ==========================================
+  const SUPABASE_URL = "https://izqdfsxdvdkoikvzgzcz.supabase.co";
+  const SUPABASE_ANON_KEY = "sb_publishable_1B4wSnpourcYGP16olCjaQ_3hKKGofw";
+  const ADMIN_PASSWORD = "0624"; // 사용하실 수정/추가용 비밀번호
+
+  const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+  let pendingAction = null;
+
+  function isAuthorized() {
+    return sessionStorage.getItem("admin_authenticated") === "true";
+  }
+
+  function handleProtectedAction(actionType) {
+    if (isAuthorized()) {
+      executeAction(actionType);
+    } else {
+      pendingAction = actionType;
+      document.getElementById("adminPassInput").value = "";
+      document.getElementById("adminAuthOverlay").style.display = "flex";
+      document.getElementById("adminPassInput").focus();
+    }
+  }
+
+  function closeAdminAuth() {
+    document.getElementById("adminAuthOverlay").style.display = "none";
+    pendingAction = null;
+  }
+
+  function submitAdminAuth() {
+    const input = document.getElementById("adminPassInput").value;
+    if (input === ADMIN_PASSWORD) {
+      sessionStorage.setItem("admin_authenticated", "true");
+      document.getElementById("adminAuthOverlay").style.display = "none";
+      if (pendingAction) {
+        const act = pendingAction;
+        pendingAction = null;
+        executeAction(act);
+      }
+    } else {
+      alert("비밀번호가 올바르지 않습니다.");
+    }
+  }
+
+  function executeAction(actionType) {
+    if (actionType === 'add') openAddModal();
+    else if (actionType === 'edit') switchEditMode();
+    else if (actionType === 'delete') deleteKit();
+  }
+
   const photoSlots = [
     ["front", "전체 정면", "유니폼 정면 전체"],
     ["back", "전체 후면", "등판 전체가 보이도록"],
@@ -264,73 +330,95 @@
 
   let currentPhotos = {};
   let currentDetailId = null;
+  let cachedKits = [];
 
-  const seed = [
-    {id:"s1", category:"club", club:"FC Barcelona", season:"14/15", type:"HOME", version:"어센틱", maker:"Nike", player:"10 / MESSI", size:"해외 L", memo:"첫 실착용 컬렉션", bg:"linear-gradient(135deg,#143e9b,#8b1739)", photos:{}},
-    {id:"s2", category:"club", club:"Galatasaray SK", season:"25/26", type:"HOME", version:"레플리카", maker:"Puma", player:"45 / OSIMHEN", size:"해외 L", memo:"오시멘을 못보고 이카르디를 보고 왔어", bg:"linear-gradient(135deg,#a71925,#e8b928)", photos:{}}
-  ];
+  // 누구나 페이지에 접속하면 데이터 자동 로드
+  window.addEventListener('DOMContentLoaded', () => {
+    loadKitsFromSupabase();
+  });
 
-  function getKits() {
-    if (!localStorage.getItem("kitarchive_kits")) {
-      localStorage.setItem("kitarchive_kits", JSON.stringify(seed));
+  async function loadKitsFromSupabase() {
+    const { data, error } = await supabase.from('kits').select('*').order('created_at', { ascending: false });
+    if (error) {
+      console.error("데이터 로드 실패:", error);
+      return;
     }
-    try {
-      return JSON.parse(localStorage.getItem("kitarchive_kits") || "[]");
-    } catch(e) {
-      return [];
-    }
+    cachedKits = data || [];
+    render();
   }
 
-  function exportData() {
-    const kits = getKits();
-    const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(kits, null, 2));
-    const dlAnchor = document.createElement('a');
-    dlAnchor.setAttribute("href", dataStr);
-    dlAnchor.setAttribute("download", `KITARCHIVE_backup_${new Date().toISOString().slice(0,10)}.json`);
-    document.body.appendChild(dlAnchor);
-    dlAnchor.click();
-    dlAnchor.remove();
+  async function processAndUploadFile(file, key) {
+    if (!file.type.startsWith("image/")) return;
+    
+    const compressedBlob = await new Promise((resolve) => {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const img = new Image();
+        img.onload = () => {
+          const canvas = document.createElement("canvas");
+          const maxW = 1200;
+          let w = img.width, h = img.height;
+          if (w > maxW) { h = Math.round((h * maxW) / w); w = maxW; }
+          canvas.width = w; canvas.height = h;
+          const ctx = canvas.getContext("2d");
+          ctx.drawImage(img, 0, 0, w, h);
+          canvas.toBlob((blob) => resolve(blob), "image/jpeg", 0.85);
+        };
+        img.src = e.target.result;
+      };
+      reader.readAsDataURL(file);
+    });
+
+    const fileName = `kit_${Date.now()}_${key}.jpg`;
+    
+    const { data, error } = await supabase.storage.from('kit-images').upload(fileName, compressedBlob, {
+      contentType: 'image/jpeg'
+    });
+
+    if (error) {
+      alert("사진 업로드 실패: " + error.message);
+      return;
+    }
+
+    const { data: publicUrlData } = supabase.storage.from('kit-images').getPublicUrl(fileName);
+    const imageUrl = publicUrlData.publicUrl;
+
+    currentPhotos[key] = imageUrl;
+    document.getElementById(`img-${key}`).src = imageUrl;
+    document.getElementById(`img-${key}`).style.display = "block";
+    document.getElementById(`rm-${key}`).style.display = "block";
+    document.getElementById(`card-${key}`).classList.add("has-img");
+    document.getElementById(`btn-txt-${key}`).textContent = "변경";
   }
 
-  function importData(e) {
+  function renderPhotoGrid() {
+    const container = document.getElementById("photoGrid");
+    container.innerHTML = photoSlots.map(([key, title, desc]) => `
+      <div class="photo-card ${currentPhotos[key] ? 'has-img' : ''}" id="card-${key}">
+        <button type="button" class="photo-remove" id="rm-${key}" onclick="removePhoto('${key}')" style="display:${currentPhotos[key] ? 'block' : 'none'}">✕</button>
+        <label>
+          <div class="photo-title">${title}</div>
+          <div class="photo-desc">${desc}</div>
+          <span class="photo-upload-btn" id="btn-txt-${key}">${currentPhotos[key] ? '변경' : '＋ 등록'}</span>
+          <input type="file" accept="image/*" hidden onchange="handlePhotoUpload(event, '${key}')">
+        </label>
+        <img id="img-${key}" class="photo-preview" src="${currentPhotos[key] || ''}" style="display:${currentPhotos[key] ? 'block' : 'none'}">
+      </div>
+    `).join("");
+  }
+
+  function handlePhotoUpload(e, key) {
     const file = e.target.files[0];
-    if (!file) return;
-
-    const reader = new FileReader();
-    reader.onload = function(evt) {
-      try {
-        const importedKits = JSON.parse(evt.target.result);
-        if (Array.isArray(importedKits)) {
-          if (confirm("기존 데이터에 백업 데이터를 불러와 덮어쓰시겠습니까?")) {
-            localStorage.setItem("kitarchive_kits", JSON.stringify(importedKits));
-            render();
-            alert("백업 복원이 완료되었습니다.");
-          }
-        } else {
-          alert("유효하지 않은 백업 파일 형식입니다.");
-        }
-      } catch (err) {
-        alert("파일을 읽는 중 오류가 발생했습니다.");
-      }
-    };
-    reader.readAsText(file);
-    e.target.value = "";
+    if (file) processAndUploadFile(file, key);
   }
 
-  function populateDataLists() {
-    const kits = getKits();
-    const fill = (id, key) => {
-      const vals = Array.from(new Set(kits.map(k => k[key]).filter(Boolean)));
-      const datalist = document.getElementById(id);
-      if (datalist) {
-        datalist.innerHTML = vals.map(v => `<option value="${v}">`).join("");
-      }
-    };
-    fill("dl-clubs", "club");
-    fill("dl-seasons", "season");
-    fill("dl-makers", "maker");
-    fill("dl-sizes", "size");
-    fill("dl-shops", "shop");
+  function removePhoto(key) {
+    delete currentPhotos[key];
+    document.getElementById(`img-${key}`).src = "";
+    document.getElementById(`img-${key}`).style.display = "none";
+    document.getElementById(`rm-${key}`).style.display = "none";
+    document.getElementById(`card-${key}`).classList.remove("has-img");
+    document.getElementById(`btn-txt-${key}`).textContent = "＋ 등록";
   }
 
   function openLightbox(src) {
@@ -346,7 +434,6 @@
   function parsePlayerInfo(playerStr) {
     if (!playerStr) return { numberStr: "", nameStr: "" };
     const str = playerStr.trim();
-    
     if (str.includes("/")) {
       const parts = str.split("/").map(p => p.trim());
       let numPart = parts.find(p => /^\d+$/.test(p) || /^No\.\d+/i.test(p));
@@ -354,21 +441,17 @@
       let numVal = numPart ? (numPart.toUpperCase().startsWith("NO.") ? numPart : `No.${numPart}`) : "";
       return { numberStr: numVal, nameStr: namePart || "" };
     }
-    
     const noMatch = str.match(/No\.?\s*(\d+)\s*(.*)/i);
-    if (noMatch) {
-      return { numberStr: `No.${noMatch[1]}`, nameStr: noMatch[2].trim() };
-    }
-
+    if (noMatch) return { numberStr: `No.${noMatch[1]}`, nameStr: noMatch[2].trim() };
     return { nameStr: str, numberStr: "" };
   }
 
   function openDetailModal(id) {
-    const kit = getKits().find(k => k.id === id);
+    const kit = cachedKits.find(k => k.id === id);
     if (!kit) return;
     
     currentDetailId = id;
-    const coverBg = kit.photos && kit.photos.front ? `background-image: url('${kit.photos.front}')` : `background: ${kit.bg || 'linear-gradient(135deg,#333,#666)'}`;
+    const coverBg = kit.photos && kit.photos.front ? `background-image: url('${kit.photos.front}')` : `background: linear-gradient(135deg,#333,#666)`;
     const coverText = kit.photos && kit.photos.front ? '' : kit.club.slice(0,3).toUpperCase();
 
     const { nameStr, numberStr } = parsePlayerInfo(kit.player);
@@ -420,96 +503,22 @@
   function switchEditMode() {
     const targetId = currentDetailId;
     closeDetailModal();
-    if (targetId) {
-      openEditModal(targetId);
-    }
+    if (targetId) openEditModal(targetId);
   }
 
-  function renderPhotoGrid() {
-    const container = document.getElementById("photoGrid");
-    container.innerHTML = photoSlots.map(([key, title, desc]) => `
-      <div class="photo-card ${currentPhotos[key] ? 'has-img' : ''}" 
-           id="card-${key}"
-           ondragover="handleDragOver(event, '${key}')"
-           ondragleave="handleDragLeave(event, '${key}')"
-           ondrop="handleDrop(event, '${key}')">
-        <button type="button" class="photo-remove" id="rm-${key}" onclick="removePhoto('${key}')" style="display:${currentPhotos[key] ? 'block' : 'none'}">✕</button>
-        <label>
-          <div class="photo-title">${title}</div>
-          <div class="photo-desc">${desc}</div>
-          <span class="photo-upload-btn" id="btn-txt-${key}">${currentPhotos[key] ? '변경' : '＋ 등록'}</span>
-          <input type="file" accept="image/*" hidden onchange="handlePhotoUpload(event, '${key}')">
-        </label>
-        <img id="img-${key}" class="photo-preview" src="${currentPhotos[key] || ''}" style="display:${currentPhotos[key] ? 'block' : 'none'}">
-      </div>
-    `).join("");
-  }
-
-  function handleDragOver(e, key) {
-    e.preventDefault();
-    document.getElementById(`card-${key}`).classList.add("dragover");
-  }
-
-  function handleDragLeave(e, key) {
-    e.preventDefault();
-    document.getElementById(`card-${key}`).classList.remove("dragover");
-  }
-
-  function handleDrop(e, key) {
-    e.preventDefault();
-    document.getElementById(`card-${key}`).classList.remove("dragover");
-    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
-      processFile(e.dataTransfer.files[0], key);
-    }
-  }
-
-  function handlePhotoUpload(e, key) {
-    const file = e.target.files[0];
-    if (file) processFile(file, key);
-  }
-
-  function processFile(file, key) {
-    if (!file.type.startsWith("image/")) return;
-    const reader = new FileReader();
-    reader.onload = function(evt) {
-      const img = new Image();
-      img.onload = function() {
-        const canvas = document.createElement("canvas");
-        const maxW = 1200;
-        let w = img.width;
-        let h = img.height;
-
-        if (w > maxW) {
-          h = Math.round((h * maxW) / w);
-          w = maxW;
-        }
-
-        canvas.width = w;
-        canvas.height = h;
-        const ctx = canvas.getContext("2d");
-        ctx.drawImage(img, 0, 0, w, h);
-
-        const compressedDataUrl = canvas.toDataURL("image/jpeg", 0.85);
-        currentPhotos[key] = compressedDataUrl;
-
-        document.getElementById(`img-${key}`).src = compressedDataUrl;
-        document.getElementById(`img-${key}`).style.display = "block";
-        document.getElementById(`rm-${key}`).style.display = "block";
-        document.getElementById(`card-${key}`).classList.add("has-img");
-        document.getElementById(`btn-txt-${key}`).textContent = "변경";
-      };
-      img.src = evt.target.result;
+  function populateDataLists() {
+    const fill = (id, key) => {
+      const vals = Array.from(new Set(cachedKits.map(k => k[key]).filter(Boolean)));
+      const datalist = document.getElementById(id);
+      if (datalist) {
+        datalist.innerHTML = vals.map(v => `<option value="${v}">`).join("");
+      }
     };
-    reader.readAsDataURL(file);
-  }
-
-  function removePhoto(key) {
-    delete currentPhotos[key];
-    document.getElementById(`img-${key}`).src = "";
-    document.getElementById(`img-${key}`).style.display = "none";
-    document.getElementById(`rm-${key}`).style.display = "none";
-    document.getElementById(`card-${key}`).classList.remove("has-img");
-    document.getElementById(`btn-txt-${key}`).textContent = "＋ 등록";
+    fill("dl-clubs", "club");
+    fill("dl-seasons", "season");
+    fill("dl-makers", "maker");
+    fill("dl-sizes", "size");
+    fill("dl-shops", "shop");
   }
 
   function render() {
@@ -517,16 +526,13 @@
     const type = document.getElementById("typeFilter").value;
     const sort = document.getElementById("sort").value;
 
-    const allKits = getKits();
-
-    let data = allKits.filter(k => 
+    let data = cachedKits.filter(k => 
       (type === "all" || k.type === type) &&
-      (k.club + k.season + k.player + k.maker + k.memo).toLowerCase().includes(q)
+      (k.club + k.season + (k.player||'') + (k.maker||'') + (k.memo||'')).toLowerCase().includes(q)
     );
 
     if (sort === "club") data.sort((a,b) => a.club.localeCompare(b.club));
     else if (sort === "season") data.sort((a,b) => b.season.localeCompare(a.season));
-    else data.reverse();
 
     const grid = document.getElementById("grid");
     if (!data.length) {
@@ -535,7 +541,7 @@
       grid.innerHTML = data.map(k => {
         const bgStyle = k.photos && k.photos.front ? 
           `background-image: url('${k.photos.front}')` : 
-          `background:${k.bg || 'linear-gradient(135deg,#333,#666)'}`;
+          `background: linear-gradient(135deg,#333,#666)`;
         const innerText = k.photos && k.photos.front ? '' : k.club.slice(0,3).toUpperCase();
 
         return `
@@ -552,16 +558,16 @@
       }).join("");
     }
 
-    const clubKits = allKits.filter(k => (k.category || 'club') === 'club');
-    const nationalKits = allKits.filter(k => k.category === 'national');
+    const clubKits = cachedKits.filter(k => (k.category || 'club') === 'club');
+    const nationalKits = cachedKits.filter(k => k.category === 'national');
 
-    document.getElementById("count").textContent = allKits.length;
+    document.getElementById("count").textContent = cachedKits.length;
     document.getElementById("clubCount").textContent = new Set(clubKits.map(k => k.club)).size;
     document.getElementById("nationalCount").textContent = new Set(nationalKits.map(k => k.club)).size;
 
-    document.getElementById("homeCount").textContent = allKits.filter(k => k.type === "HOME").length;
-    document.getElementById("awayCount").textContent = allKits.filter(k => k.type === "AWAY").length;
-    document.getElementById("thirdCount").textContent = allKits.filter(k => k.type !== "HOME" && k.type !== "AWAY").length;
+    document.getElementById("homeCount").textContent = cachedKits.filter(k => k.type === "HOME").length;
+    document.getElementById("awayCount").textContent = cachedKits.filter(k => k.type === "AWAY").length;
+    document.getElementById("thirdCount").textContent = cachedKits.filter(k => k.type !== "HOME" && k.type !== "AWAY").length;
 
     populateDataLists();
   }
@@ -580,7 +586,7 @@
 
   function openEditModal(id) {
     populateDataLists();
-    const kit = getKits().find(k => k.id === id);
+    const kit = cachedKits.find(k => k.id === id);
     if (!kit) return;
 
     document.getElementById("modalTitle").textContent = "유니폼 수정";
@@ -611,14 +617,13 @@
     document.getElementById("modalOverlay").style.display = "none";
   }
 
-  function saveKit(e) {
+  async function saveKit(e) {
     e.preventDefault();
-    const id = document.getElementById("kitId").value;
-    const kits = getKits();
+    const id = document.getElementById("kitId").value || "kit_" + Date.now();
     const selectedCategory = document.querySelector('input[name="category"]:checked')?.value || 'club';
 
     const kitData = {
-      id: id || "kit_" + Date.now(),
+      id: id,
       category: selectedCategory,
       club: document.getElementById("club").value.trim(),
       season: document.getElementById("season").value.trim(),
@@ -629,38 +634,32 @@
       size: document.getElementById("size").value.trim(),
       shop: document.getElementById("shop").value.trim(),
       memo: document.getElementById("memo").value.trim(),
-      photos: { ...currentPhotos },
-      bg: "linear-gradient(135deg, #2c3e50, #4ca1af)"
+      photos: { ...currentPhotos }
     };
 
-    if (id) {
-      const idx = kits.findIndex(k => k.id === id);
-      if (idx !== -1) kits[idx] = { ...kits[idx], ...kitData };
-    } else {
-      kits.push(kitData);
-    }
+    const { error } = await supabase.from('kits').upsert(kitData);
 
-    try {
-      localStorage.setItem("kitarchive_kits", JSON.stringify(kits));
+    if (error) {
+      alert("저장 실패: " + error.message);
+    } else {
       closeModal();
-      render();
-    } catch (error) {
-      alert("이미지 용량이 브라우저 저장 한도를 초과했습니다. 몇몇 사진을 지우시거나 새로 시도해주세요.");
+      await loadKitsFromSupabase();
     }
   }
 
-  function deleteKit() {
+  async function deleteKit() {
     const id = document.getElementById("kitId").value;
     if (!id) return;
     if (confirm("정말 이 유니폼을 삭제하시겠습니까?")) {
-      const kits = getKits().filter(k => k.id !== id);
-      localStorage.setItem("kitarchive_kits", JSON.stringify(kits));
-      closeModal();
-      render();
+      const { error } = await supabase.from('kits').delete().eq('id', id);
+      if (error) {
+        alert("삭제 실패: " + error.message);
+      } else {
+        closeModal();
+        await loadKitsFromSupabase();
+      }
     }
   }
-
-  render();
 </script>
 </body>
 </html>
