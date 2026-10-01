@@ -7,12 +7,34 @@ on:
   # Actions 탭에서 수동으로 실행해 볼 수 있게 함
   workflow_dispatch:
 
+# 저장소에 빈 커밋을 남길 수 있도록 쓰기 권한 부여
+permissions:
+  contents: write
+
 jobs:
   ping:
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
+
       - name: Ping Supabase (kits 테이블 1건 조회)
         run: |
           curl --fail --silent --show-error --max-time 30 \
             "https://izqdfsxdvdkoikvzgzcz.supabase.co/rest/v1/kits?select=id&limit=1" \
             -H "apikey: sb_publishable_1B4wSnpourcYGP16olCjaQ_3hKKGofw"
+
+      # Public 저장소는 60일간 활동이 없으면 GitHub가 예약 실행을 꺼 버림.
+      # 마지막 커밋이 30일보다 오래됐으면 빈 커밋을 남겨서 방지함.
+      - name: Keep repository active
+        run: |
+          last=$(git log -1 --format=%ct)
+          now=$(date +%s)
+          if [ $((now - last)) -gt $((30 * 24 * 3600)) ]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git commit --allow-empty -m "chore: keep scheduled workflow active"
+            git push
+            echo "빈 커밋을 남겼습니다."
+          else
+            echo "최근 활동이 있어 커밋이 필요하지 않습니다."
+          fi
