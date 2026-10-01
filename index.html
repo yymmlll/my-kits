@@ -40,7 +40,7 @@
 
   /* Grid & Card */
   .grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; padding-bottom: 60px; align-items: start; }
-  .kit-img { display: block; width: 100%; height: auto; }
+  .kit-img { display: block; width: 100%; height: auto; aspect-ratio: auto 3 / 4; background: #efede6; }
   .kit { background: #fff; cursor: pointer; transition: transform 0.18s, box-shadow 0.18s; border-radius: 4px; overflow: hidden; border: 1px solid #e5e2da; }
   .kit:hover { transform: translateY(-3px); box-shadow: 0 8px 20px rgba(0,0,0,0.06); }
   .kit-image { height: 280px; display: flex; align-items: center; justify-content: center; color: #fff; font-size: 38px; font-weight: 900; background-size: contain !important; background-repeat: no-repeat !important; background-position: center !important; background-color: #efede6; }
@@ -70,7 +70,7 @@
   .detail-memo { background: #f9f8f3; padding: 10px 12px; border-radius: 4px; font-size: 12px; color: #333; margin-top: 10px; border-left: 3px solid #111; line-height: 1.5; }
   .detail-photo-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 8px; margin-top: 15px; align-items: start; }
   .detail-photo-card { border: 1px solid #eee; border-radius: 4px; padding: 6px; background: #fafafa; text-align: center; }
-  .detail-photo-card img { display: block; width: 100%; height: auto; border-radius: 3px; margin-top: 4px; cursor: pointer; }
+  .detail-photo-card img { display: block; width: 100%; height: auto; aspect-ratio: auto 3 / 4; background: #efede6; border-radius: 3px; margin-top: 4px; cursor: pointer; }
   .detail-photo-card .no-img { height: 60px; display: flex; align-items: center; justify-content: center; color: #ccc; font-size: 11px; }
   .detail-cover-img { display: block; width: 220px; max-width: 100%; height: auto; border-radius: 4px; flex-shrink: 0; }
   .detail-photo-title { font-size: 11px; font-weight: 700; color: #555; }
@@ -126,6 +126,7 @@
   <a class="brand" href="#">유니폼 모읍니다.</a>
   <div class="top-actions">
     <button id="addBtn" class="btn-add" style="display:none" onclick="handleProtectedAction('add')">＋ 유니폼 추가</button>
+    <button id="thumbBtn" class="btn-sec" style="display:none" onclick="generateMissingThumbs()">썸네일 생성</button>
     <button id="authBtn" class="btn-sec" onclick="handleAuthButton()">관리자 로그인</button>
   </div>
 </header>
@@ -321,6 +322,7 @@
     document.getElementById("addBtn").style.display = isAdmin ? "inline-block" : "none";
     document.getElementById("editBtn").style.display = isAdmin ? "inline-block" : "none";
     document.getElementById("authBtn").textContent = isAdmin ? "로그아웃" : "관리자 로그인";
+    document.getElementById("thumbBtn").style.display = isAdmin ? "inline-block" : "none";
   }
 
   // 로그인/로그아웃/새로고침 시 세션 상태를 반영 (최초 로드 시에도 한 번 호출됨)
@@ -367,47 +369,98 @@
     render();
   }
 
-  async function processAndUploadFile(file, key) {
-    if (!file.type.startsWith("image/")) return;
-    
-    const compressedBlob = await new Promise((resolve) => {
+  function resizeImage(file, maxW, quality) {
+    return new Promise((resolve) => {
       const reader = new FileReader();
       reader.onload = (e) => {
         const img = new Image();
         img.onload = () => {
           const canvas = document.createElement("canvas");
-          const maxW = 1200;
           let w = img.width, h = img.height;
           if (w > maxW) { h = Math.round((h * maxW) / w); w = maxW; }
           canvas.width = w; canvas.height = h;
-          const ctx = canvas.getContext("2d");
-          ctx.drawImage(img, 0, 0, w, h);
-          canvas.toBlob((blob) => resolve(blob), "image/jpeg", 0.85);
+          canvas.getContext("2d").drawImage(img, 0, 0, w, h);
+          canvas.toBlob((blob) => resolve(blob), "image/jpeg", quality);
         };
         img.src = e.target.result;
       };
       reader.readAsDataURL(file);
     });
+  }
 
-    const fileName = `kit_${Date.now()}_${key}.jpg`;
-    
-    const { error } = await sb.storage.from('kit-images').upload(fileName, compressedBlob, {
-      contentType: 'image/jpeg'
+  // 파일명이 매번 고유하므로 브라우저 캐시를 1년으로 지정 (재방문 시 다시 다운로드하지 않음)
+  async function uploadBlob(fileName, blob) {
+    const { error } = await sb.storage.from('kit-images').upload(fileName, blob, {
+      contentType: 'image/jpeg',
+      cacheControl: '31536000'
     });
+    if (error) return { error };
+    const { data } = sb.storage.from('kit-images').getPublicUrl(fileName);
+    return { url: data.publicUrl };
+  }
 
-    if (error) {
-      alert("사진 업로드 실패: " + error.message);
+  async function processAndUploadFile(file, key) {
+    if (!file.type.startsWith("image/")) return;
+
+    const base = `kit_${Date.now()}_${key}`;
+    // 원본(상세/확대용)은 기존과 동일한 품질, 목록/미리보기용 썸네일을 추가로 저장
+    const fullBlob = await resizeImage(file, 1200, 0.85);
+    const thumbBlob = await resizeImage(file, 600, 0.85);
+
+    const full = await uploadBlob(`${base}.jpg`, fullBlob);
+    if (full.error) {
+      alert("사진 업로드 실패: " + full.error.message);
       return;
     }
+    const thumb = await uploadBlob(`${base}_t.jpg`, thumbBlob);
 
-    const { data: publicUrlData } = sb.storage.from('kit-images').getPublicUrl(fileName);
-    currentPhotos[key] = publicUrlData.publicUrl;
-    
-    document.getElementById(`img-${key}`).src = currentPhotos[key];
+    currentPhotos[key] = full.url;
+    if (thumb.error) delete currentPhotos[key + "_t"];
+    else currentPhotos[key + "_t"] = thumb.url;
+
+    document.getElementById(`img-${key}`).src = currentPhotos[key + "_t"] || currentPhotos[key];
     document.getElementById(`img-${key}`).style.display = "block";
     document.getElementById(`rm-${key}`).style.display = "block";
     document.getElementById(`card-${key}`).classList.add("has-img");
     document.getElementById(`btn-txt-${key}`).textContent = "변경";
+  }
+
+  // 이미 올려둔 사진의 썸네일을 한 번에 만들어 주는 관리자용 도구 (원본은 그대로 유지)
+  async function generateMissingThumbs() {
+    if (!isAdmin) return;
+    const targets = [];
+    cachedKits.forEach(k => photoSlots.forEach(([key]) => {
+      if (k.photos && k.photos[key] && !k.photos[key + "_t"]) targets.push([k, key]);
+    }));
+    if (!targets.length) { alert("새로 만들 썸네일이 없습니다."); return; }
+    if (!confirm(`사진 ${targets.length}장의 썸네일을 만듭니다. (원본은 그대로 유지됩니다)`)) return;
+
+    const btn = document.getElementById("thumbBtn");
+    const changed = new Set();
+    let done = 0;
+    for (const [k, key] of targets) {
+      btn.textContent = `생성 중 ${done + 1}/${targets.length}`;
+      try {
+        const blob = await (await fetch(k.photos[key])).blob();
+        const thumbBlob = await resizeImage(blob, 600, 0.85);
+        const rand = Math.random().toString(36).slice(2, 8);
+        const up = await uploadBlob(`kit_${Date.now()}_${rand}_${key}_t.jpg`, thumbBlob);
+        if (up.error) throw up.error;
+        k.photos[key + "_t"] = up.url;
+        changed.add(k.id);
+      } catch (err) {
+        console.error("썸네일 생성 실패:", k.id, key, err);
+      }
+      done++;
+    }
+    for (const k of cachedKits) {
+      if (!changed.has(k.id)) continue;
+      const { error } = await sb.from('kits').update({ photos: k.photos }).eq('id', k.id);
+      if (error) console.error("저장 실패:", k.id, error);
+    }
+    btn.textContent = "썸네일 생성";
+    await loadKitsFromSupabase();
+    alert("썸네일 생성이 끝났습니다.");
   }
 
   function renderPhotoGrid() {
@@ -421,7 +474,7 @@
           <span class="photo-upload-btn" id="btn-txt-${key}">${currentPhotos[key] ? '변경' : '＋ 등록'}</span>
           <input type="file" accept="image/*" hidden onchange="handlePhotoUpload(event, '${key}')">
         </label>
-        <img id="img-${key}" class="photo-preview" src="${currentPhotos[key] || ''}" style="display:${currentPhotos[key] ? 'block' : 'none'}">
+        <img id="img-${key}" class="photo-preview" src="${currentPhotos[key + '_t'] || currentPhotos[key] || ''}" style="display:${currentPhotos[key] ? 'block' : 'none'}">
       </div>
     `).join("");
   }
@@ -433,6 +486,7 @@
 
   function removePhoto(key) {
     delete currentPhotos[key];
+    delete currentPhotos[key + "_t"];
     document.getElementById(`img-${key}`).src = "";
     document.getElementById(`img-${key}`).style.display = "none";
     document.getElementById(`rm-${key}`).style.display = "none";
@@ -473,7 +527,7 @@
     const coverBg = kit.photos && kit.photos.front ? `background-image: url('${kit.photos.front}')` : `background: linear-gradient(135deg,#333,#666)`;
     const coverText = kit.photos && kit.photos.front ? '' : kit.club.slice(0,3).toUpperCase();
     const coverHtml = kit.photos && kit.photos.front
-      ? `<img class="detail-cover-img" src="${kit.photos.front}" alt="${kit.club}">`
+      ? `<img class="detail-cover-img" src="${kit.photos.front_t || kit.photos.front}" alt="${kit.club}">`
       : `<div class="detail-cover" style="${coverBg}">${coverText}</div>`;
 
     const { nameStr, numberStr } = parsePlayerInfo(kit.player);
@@ -482,10 +536,11 @@
 
     const photosHtml = photoSlots.map(([key, title]) => {
       const src = kit.photos && kit.photos[key];
+      const thumb = kit.photos && (kit.photos[key + "_t"] || kit.photos[key]);
       return `
         <div class="detail-photo-card">
           <div class="detail-photo-title">${title}</div>
-          ${src ? `<img src="${src}" onclick="openLightbox('${src}')" title="클릭하여 확대">` : `<div class="no-img">미등록</div>`}
+          ${src ? `<img src="${thumb}" loading="lazy" decoding="async" onclick="openLightbox('${src}')" title="클릭하여 확대">` : `<div class="no-img">미등록</div>`}
         </div>
       `;
     }).join("");
@@ -566,7 +621,7 @@
           `background: linear-gradient(135deg,#333,#666)`;
         const innerText = k.photos && k.photos.front ? '' : k.club.slice(0,3).toUpperCase();
         const imageHtml = k.photos && k.photos.front
-          ? `<img class="kit-img" src="${k.photos.front}" alt="${k.club}">`
+          ? `<img class="kit-img" src="${k.photos.front_t || k.photos.front}" alt="${k.club}" loading="lazy" decoding="async">`
           : `<div class="kit-image" style="${bgStyle}">${innerText}</div>`;
 
         return `
