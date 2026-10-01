@@ -253,8 +253,8 @@
   const SUPABASE_ANON_KEY = "sb_publishable_1B4wSnpourcYGP16olCjaQ_3hKKGofw";
   const ADMIN_PASSWORD = "1234";
 
-  // 단 1번만 선언되도록 수정한 부분입니다.
-  const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+  // CDN 라이브러리가 전역 `supabase`를 이미 쓰므로, 클라이언트는 `sb`라는 다른 이름으로 선언
+  const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
   let pendingAction = null;
   let currentPhotos = {};
@@ -323,7 +323,7 @@
   }
 
   async function loadKitsFromSupabase() {
-    const { data, error } = await supabase.from('kits').select('*').order('created_at', { ascending: false });
+    const { data, error } = await sb.from('kits').select('*').order('created_at', { ascending: false });
     if (error) {
       console.error("데이터 로드 실패:", error);
       return;
@@ -356,7 +356,7 @@
 
     const fileName = `kit_${Date.now()}_${key}.jpg`;
     
-    const { error } = await supabase.storage.from('kit-images').upload(fileName, compressedBlob, {
+    const { error } = await sb.storage.from('kit-images').upload(fileName, compressedBlob, {
       contentType: 'image/jpeg'
     });
 
@@ -365,7 +365,7 @@
       return;
     }
 
-    const { data: publicUrlData } = supabase.storage.from('kit-images').getPublicUrl(fileName);
+    const { data: publicUrlData } = sb.storage.from('kit-images').getPublicUrl(fileName);
     currentPhotos[key] = publicUrlData.publicUrl;
     
     document.getElementById(`img-${key}`).src = currentPhotos[key];
@@ -620,7 +620,7 @@
       photos: { ...currentPhotos }
     };
 
-    const { error } = await supabase.from('kits').upsert(kitData);
+    const { error } = await sb.from('kits').upsert(kitData);
     if (error) {
       alert("저장 실패: " + error.message);
     } else {
@@ -633,7 +633,7 @@
     const id = document.getElementById("kitId").value;
     if (!id) return;
     if (confirm("정말 이 유니폼을 삭제하시겠습니까?")) {
-      const { error } = await supabase.from('kits').delete().eq('id', id);
+      const { error } = await sb.from('kits').delete().eq('id', id);
       if (error) {
         alert("삭제 실패: " + error.message);
       } else {
