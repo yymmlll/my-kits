@@ -126,7 +126,6 @@
   <a class="brand" href="#">유니폼 모읍니다.</a>
   <div class="top-actions">
     <button id="addBtn" class="btn-add" style="display:none" onclick="handleProtectedAction('add')">＋ 유니폼 추가</button>
-    <button id="thumbBtn" class="btn-sec" style="display:none" onclick="generateMissingThumbs()">썸네일 생성</button>
     <button id="authBtn" class="btn-sec" onclick="handleAuthButton()">관리자 로그인</button>
   </div>
 </header>
@@ -282,8 +281,7 @@
     ["other1", "기타 1 (택 등)", "정품 택 등"],
     ["other2", "기타 2", "추가 사진"],
     ["other3", "기타 3", "추가 사진"],
-    ["other4", "기타 4", "추가 사진"],
-    ["other5", "기타 5", "추가 사진"]
+    ["other4", "기타 4", "추가 사진"]
   ];
 
   window.addEventListener('DOMContentLoaded', () => {
@@ -322,7 +320,6 @@
     document.getElementById("addBtn").style.display = isAdmin ? "inline-block" : "none";
     document.getElementById("editBtn").style.display = isAdmin ? "inline-block" : "none";
     document.getElementById("authBtn").textContent = isAdmin ? "로그아웃" : "관리자 로그인";
-    document.getElementById("thumbBtn").style.display = isAdmin ? "inline-block" : "none";
   }
 
   // 로그인/로그아웃/새로고침 시 세션 상태를 반영 (최초 로드 시에도 한 번 호출됨)
@@ -423,44 +420,6 @@
     document.getElementById(`rm-${key}`).style.display = "block";
     document.getElementById(`card-${key}`).classList.add("has-img");
     document.getElementById(`btn-txt-${key}`).textContent = "변경";
-  }
-
-  // 이미 올려둔 사진의 썸네일을 한 번에 만들어 주는 관리자용 도구 (원본은 그대로 유지)
-  async function generateMissingThumbs() {
-    if (!isAdmin) return;
-    const targets = [];
-    cachedKits.forEach(k => photoSlots.forEach(([key]) => {
-      if (k.photos && k.photos[key] && !k.photos[key + "_t"]) targets.push([k, key]);
-    }));
-    if (!targets.length) { alert("새로 만들 썸네일이 없습니다."); return; }
-    if (!confirm(`사진 ${targets.length}장의 썸네일을 만듭니다. (원본은 그대로 유지됩니다)`)) return;
-
-    const btn = document.getElementById("thumbBtn");
-    const changed = new Set();
-    let done = 0;
-    for (const [k, key] of targets) {
-      btn.textContent = `생성 중 ${done + 1}/${targets.length}`;
-      try {
-        const blob = await (await fetch(k.photos[key])).blob();
-        const thumbBlob = await resizeImage(blob, 600, 0.85);
-        const rand = Math.random().toString(36).slice(2, 8);
-        const up = await uploadBlob(`kit_${Date.now()}_${rand}_${key}_t.jpg`, thumbBlob);
-        if (up.error) throw up.error;
-        k.photos[key + "_t"] = up.url;
-        changed.add(k.id);
-      } catch (err) {
-        console.error("썸네일 생성 실패:", k.id, key, err);
-      }
-      done++;
-    }
-    for (const k of cachedKits) {
-      if (!changed.has(k.id)) continue;
-      const { error } = await sb.from('kits').update({ photos: k.photos }).eq('id', k.id);
-      if (error) console.error("저장 실패:", k.id, error);
-    }
-    btn.textContent = "썸네일 생성";
-    await loadKitsFromSupabase();
-    alert("썸네일 생성이 끝났습니다.");
   }
 
   function renderPhotoGrid() {
