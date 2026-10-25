@@ -558,6 +558,15 @@
     fill("dl-shops", "shop");
   }
 
+  // "25/26", "98/99", "2005/06" 같은 시즌 문자열을 비교 가능한 시작 연도 숫자로 변환
+  function seasonKey(season) {
+    const m = String(season || "").match(/\d{2,4}/);
+    if (!m) return 0;
+    let n = parseInt(m[0], 10);
+    if (m[0].length <= 2) n += n >= 60 ? 1900 : 2000;
+    return n;
+  }
+
   function render() {
     const q = document.getElementById("search").value.toLowerCase();
     const type = document.getElementById("typeFilter").value;
@@ -568,8 +577,9 @@
       (k.club + k.season + (k.player||'') + (k.maker||'') + (k.memo||'')).toLowerCase().includes(q)
     );
 
-    if (sort === "club") data.sort((a,b) => a.club.localeCompare(b.club));
-    else if (sort === "season") data.sort((a,b) => b.season.localeCompare(a.season));
+    // 이름순: 구단명 → (같은 구단이면) 최신 시즌이 먼저 / 시즌순: 최신 시즌 → 구단명
+    if (sort === "club") data.sort((a,b) => a.club.localeCompare(b.club) || seasonKey(b.season) - seasonKey(a.season));
+    else if (sort === "season") data.sort((a,b) => seasonKey(b.season) - seasonKey(a.season) || a.club.localeCompare(b.club));
 
     const grid = document.getElementById("grid");
     if (!data.length) {
